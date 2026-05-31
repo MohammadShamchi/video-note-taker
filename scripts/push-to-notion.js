@@ -36,8 +36,15 @@ if (!OPENAI_API_KEY) {
 function readLastSession(filePath) {
   if (!fs.existsSync(filePath)) return '';
   const content = fs.readFileSync(filePath, 'utf8');
-  const parts   = content.split(/---\n\n_(?:New session|Started):/);
-  return parts[parts.length - 1].trim();
+  // Session boundary markers written by the note scripts:
+  //   _Session started:  (initial header — note-live, both files)
+  //   _New session:      (subsequent live runs)
+  //   _Generated:        (file-mode header)
+  const parts   = content.split(/\n_(?:New session|Session started|Generated): /);
+  const last    = parts[parts.length - 1];
+  // Drop the leading timestamp/separator tail so we start at the first segment.
+  const firstSegment = last.indexOf('\n## ');
+  return (firstSegment === -1 ? last : last.slice(firstSegment + 1)).trim();
 }
 
 async function generateSummary(notesText) {
