@@ -1,0 +1,17 @@
+# Environment variables — NEVER commit this
+.env
+
+# Output files (personal notes — don't share)
+tutorial_notes.md
+tutorial_transcript.md
+.notion_push_payload.json
+
+# Dependencies
+node_modules/
+
+# macOS
+.DS_Store
+
+# Temp audio chunks
+/tmp/live-notes-*
+/tmp/notes-*

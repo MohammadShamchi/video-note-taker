@@ -1,0 +1,31 @@
+{
+  "name": "ai-tutorial-notes",
+  "version": "1.0.0",
+  "description": "Automatically transcribe and take AI-powered notes from any tutorial video — live stream or local file — using OpenAI Whisper + GPT-4o-mini, with optional Notion export.",
+  "main": "scripts/note-live.js",
+  "scripts": {
+    "live": "node scripts/note-live.js",
+    "file": "node scripts/note-from-file.js",
+    "push-notion": "node scripts/push-to-notion.js"
+  },
+  "keywords": [
+    "openai",
+    "whisper",
+    "notes",
+    "tutorial",
+    "transcription",
+    "notion",
+    "blackhole",
+    "macos",
+    "ai",
+    "gpt4"
+  ],
+  "author": "Mohammad Shamchi",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5"
+  }
+}
