@@ -43,6 +43,7 @@ final class NotePipeline {
     private var task: Task<Void, Never>?
     private var processingTask: Task<Void, Never>?
     private var queuedChunks: [QueuedChunk] = []
+    private var queuedChunkHead = 0
     private var stopRequested = false
     private var previousTranscriptTail = ""
     private let transcriptPromptChars = 600
@@ -61,6 +62,7 @@ final class NotePipeline {
         stopRequested = false
         previousTranscriptTail = ""
         queuedChunks.removeAll()
+        queuedChunkHead = 0
         processingTask = nil
 
         let tmp = FileManager.default.temporaryDirectory
@@ -128,8 +130,13 @@ final class NotePipeline {
         processingTask = Task { [weak self] in
             guard let self else { return }
             while !Task.isCancelled {
-                guard !self.queuedChunks.isEmpty else { break }
-                let chunk = self.queuedChunks.removeFirst()
+                guard self.queuedChunkHead < self.queuedChunks.count else {
+                    self.queuedChunks.removeAll(keepingCapacity: true)
+                    self.queuedChunkHead = 0
+                    break
+                }
+                let chunk = self.queuedChunks[self.queuedChunkHead]
+                self.queuedChunkHead += 1
                 await self.process(chunk, client: client, store: store)
                 try? FileManager.default.removeItem(at: chunk.url)
             }
