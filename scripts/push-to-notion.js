@@ -25,6 +25,8 @@ const NOTES_FILE      = process.env.NOTES_FILE
 const TRANSCRIPT_FILE = process.env.TRANSCRIPT_FILE
   ? path.resolve(process.env.TRANSCRIPT_FILE.replace('~', os.homedir()))
   : path.join(os.homedir(), 'tutorial_transcript.md');
+// Per-session, topic-named transcripts written by the note scripts (Feature 2).
+const SESSION_DIR = path.join(os.homedir(), 'TutorScribe', 'transcripts');
 
 if (!OPENAI_API_KEY) {
   console.error('\n  ERROR: OPENAI_API_KEY is not set.\n');
@@ -45,6 +47,47 @@ function readLastSession(filePath) {
   // Drop the leading timestamp/separator tail so we start at the first segment.
   const firstSegment = last.indexOf('\n## ');
   return (firstSegment === -1 ? last : last.slice(firstSegment + 1)).trim();
+}
+
+// Reuse the topic inferred by Feature 2: the H1 of the newest per-session
+// transcript file. Skips pending/placeholder headings. Returns '' if none found.
+function readLatestSessionTitle() {
+  if (!fs.existsSync(SESSION_DIR)) return '';
+  const files = fs.readdirSync(SESSION_DIR)
+    .filter(f => f.endsWith('.md') && !f.startsWith('pending-'));
+  if (!files.length) return '';
+  const newest = files
+    .map(f => ({ f, m: fs.statSync(path.join(SESSION_DIR, f)).mtimeMs }))
+    .sort((a, b) => b.m - a.m)[0].f;
+  const first = fs.readFileSync(path.join(SESSION_DIR, newest), 'utf8').split('\n')[0];
+  const h1 = first.startsWith('# ') ? first.slice(2).trim() : '';
+  if (!h1 || /^Tutorial session/i.test(h1) || h1 === 'Tutorial Session') return '';
+  return h1;
+}
+
+// Fallback when no per-session metadata exists: infer a title from the latest
+// notes/transcript text. Mirrors inferTranscriptTitle() in note-live.js.
+async function inferTitleFromText(text) {
+  if (!text) return '';
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: process.env.NOTES_MODEL || 'gpt-4o-mini',
+        temperature: 0.2,
+        messages: [
+          { role: 'system', content: 'You title tutorial recordings. Reply with ONLY a short, human-readable title of 3-8 words describing the topic. No quotes, no trailing punctuation, no markdown.' },
+          { role: 'user', content: text.slice(0, 4000) },
+        ],
+      }),
+    });
+    if (!res.ok) return '';
+    const json = await res.json();
+    return (json.choices?.[0]?.message?.content || '').trim().replace(/^["']+|["']+$/g, '');
+  } catch {
+    return '';
+  }
 }
 
 async function generateSummary(notesText) {
@@ -117,11 +160,7 @@ function buildNotionContent(notesText, transcriptText, summary) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const title = process.argv[2]
-    || `Tutorial Notes — ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
-
   console.log(`\n  push-to-notion.js`);
-  console.log(`  Title: "${title}"\n`);
 
   const notesText      = readLastSession(NOTES_FILE);
   const transcriptText = readLastSession(TRANSCRIPT_FILE);
@@ -130,6 +169,16 @@ async function main() {
     console.error('  No notes or transcript found. Run note-live.js first.\n');
     process.exit(1);
   }
+
+  // Title precedence: manual arg → inferred session topic (Feature 2) →
+  // title inferred from the latest text → date fallback.
+  const dateFallback = `Tutorial Notes — ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  const title = process.argv[2]
+    || readLatestSessionTitle()
+    || (await inferTitleFromText(notesText || transcriptText))
+    || dateFallback;
+
+  console.log(`  Title: "${title}"\n`);
 
   console.log('  Generating summary...');
   const summary = notesText ? await generateSummary(notesText) : '';
@@ -149,4 +198,8 @@ async function main() {
   console.log('───────────────────────────────────────────────────\n');
 }
 
-main().catch(e => { console.error(e.message); process.exit(1); });
+if (require.main === module) {
+  main().catch(e => { console.error(e.message); process.exit(1); });
+}
+
+module.exports = { readLastSession, readLatestSessionTitle, inferTitleFromText, buildNotionContent };

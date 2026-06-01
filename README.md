@@ -191,12 +191,15 @@ Like live mode, file mode writes **`~/tutorial_notes.md`** (AI bullet notes per 
 After watching, run:
 
 ```bash
+node scripts/push-to-notion.js                      # uses the inferred session topic as the title
+# or override the title:
 node scripts/push-to-notion.js "ZTM - Land Your Dream Job"
-# or
 npm run push-notion -- "Your course name here"
 ```
 
-This builds a structured Notion page payload with an AI-generated summary. If you have the Notion MCP connected in Claude, just say **"push to Notion"** and it creates the page automatically.
+This builds a structured Notion page payload with an AI-generated summary. If you have the Notion MCP connected in Claude, just say **"push to Notion"** and it creates the page (as a sub-page of the connected parent) automatically.
+
+When no title argument is given, the page name defaults to the **inferred session topic** (the same topic used to name the per-session transcript file). A passed title always overrides it.
 
 The Notion page structure:
 - 📋 AI session summary at the top

@@ -94,10 +94,10 @@ struct MenuContentView: View {
 
     private var pushSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            TextField("Notion page title", text: $pushTitle)
+            TextField(app.defaultNotionTitle, text: $pushTitle)
                 .textFieldStyle(.roundedBorder)
             Button {
-                app.pushToNotion(title: pushTitle.isEmpty ? defaultTitle : pushTitle)
+                app.pushToNotion(title: pushTitle.isEmpty ? app.defaultNotionTitle : pushTitle)
             } label: {
                 Label("Push to Notion", systemImage: "arrow.up.doc")
                     .frame(maxWidth: .infinity)
@@ -108,10 +108,5 @@ struct MenuContentView: View {
                     .font(.caption2).foregroundStyle(.secondary)
             }
         }
-    }
-
-    private var defaultTitle: String {
-        let f = DateFormatter(); f.dateStyle = .medium
-        return "Tutorial Notes — \(f.string(from: Date()))"
     }
 }

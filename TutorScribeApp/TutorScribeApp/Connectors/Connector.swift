@@ -9,13 +9,20 @@ struct SessionData {
 
     var isEmpty: Bool { notesMarkdown.isEmpty && transcriptMarkdown.isEmpty }
 
-    /// Build from the last session written to disk.
-    static func fromLastSession(title: String) -> SessionData {
+    /// Build from the last session written to disk. When `title` is nil, default to
+    /// the topic inferred by the pipeline (Feature 2), falling back to a date title.
+    static func fromLastSession(title: String? = nil) -> SessionData {
         SessionData(
-            title: title,
+            title: title ?? SessionStore.latestSessionTitle() ?? dateTitle(),
             notesMarkdown: SessionStore.readLastSession(Config.notesFile),
             transcriptMarkdown: SessionStore.readLastSession(Config.transcriptFile)
         )
+    }
+
+    /// `Tutorial Notes — 1 Jun 2026` — last-resort title when no topic is available.
+    static func dateTitle() -> String {
+        let f = DateFormatter(); f.dateStyle = .medium
+        return "Tutorial Notes — \(f.string(from: Date()))"
     }
 }
 
