@@ -152,6 +152,8 @@ async function main() {
   // Init notes + transcript files
   const title  = path.basename(resolvedInput);
   const stamp  = new Date().toLocaleString();
+  fs.mkdirSync(path.dirname(OUTPUT_FILE), { recursive: true });
+  fs.mkdirSync(path.dirname(TRANSCRIPT_FILE), { recursive: true });
   fs.writeFileSync(OUTPUT_FILE, `# Tutorial Notes — ${title}\n\n_Generated: ${stamp}_\n\n---\n`);
   fs.writeFileSync(TRANSCRIPT_FILE, `# Tutorial Transcript — ${title}\n\n_Generated: ${stamp}_\n\n---\n`);
 
