@@ -19,24 +19,35 @@ enum PipelineStatus: Equatable {
 }
 
 /// The record → transcribe → note loop. Mirrors the main loop in note-live.js.
-/// Reports progress through @MainActor callbacks consumed by AppState.
+/// @MainActor so its mutable state is accessed serially; the heavy work (ffmpeg,
+/// OpenAI) stays off-main via the nonisolated async calls it awaits. All per-session
+/// state lives in a fresh `SessionStore` per run, captured by the running task, so a
+/// rapid Stop→Start can't let an old task's cleanup touch the new session.
+@MainActor
 final class NotePipeline {
     var onStatus: (@MainActor (PipelineStatus) -> Void)?
     var onSegment: (@MainActor (_ count: Int, _ lastNote: String?) -> Void)?
+    /// Fires with the per-session transcript file URL once it's named, and again on stop.
+    var onSession: (@MainActor (URL?) -> Void)?
 
     private let capture = AudioCapture()
-    private let store = SessionStore()
+    private var store: SessionStore?
     private var task: Task<Void, Never>?
-    private var segments = 0
 
     var isRunning: Bool { task != nil }
 
     func start() throws {
-        guard task == nil else { return }
         let client = try OpenAIClient()              // throws if key missing
         let device = try AudioCapture.detectBlackHoleDevice()
+
+        // Supersede any in-flight session: its cleanup will see a different `store`
+        // and bail out (see the guard at the end of the task).
+        task?.cancel()
+        capture.stop()
+
+        let store = SessionStore()
         store.startSession()
-        segments = 0
+        self.store = store
 
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("tutorscribe-\(UUID().uuidString)")
@@ -48,53 +59,65 @@ final class NotePipeline {
             while !Task.isCancelled {
                 let out = tmp.appendingPathComponent("chunk_\(chunk).wav")
                 chunk += 1
-                await self.emit(.recording)
+                self.emit(.recording)
                 do {
                     try await self.capture.recordChunk(device: device, seconds: Config.chunkSecs, to: out)
-                    await self.process(out, client: client)
+                    await self.process(out, client: client, store: store)
                     try? FileManager.default.removeItem(at: out)
                 } catch {
                     if !Task.isCancelled {
-                        await self.emit(.error(error.localizedDescription))
+                        self.emit(.error(error.localizedDescription))
                     }
                 }
             }
             try? FileManager.default.removeItem(at: tmp)
-            await self.emit(.idle)
+            let final = store.finishSession()
+            // Only report completion if no newer session has taken over.
+            guard self.store === store else { return }
+            self.onSession?(final)
+            self.emit(.idle)
+            self.task = nil
         }
     }
 
     func stop() {
         capture.stop()       // flush current ffmpeg chunk
-        task?.cancel()
-        task = nil
+        task?.cancel()       // task = nil happens at the end of its own cleanup
     }
 
     // MARK: One chunk — same gates as note-live.js
 
-    private func process(_ wav: URL, client: OpenAIClient) async {
+    private func process(_ wav: URL, client: OpenAIClient, store: SessionStore) async {
         let sizeMB = fileSizeMB(wav)
         guard sizeMB >= Config.minChunkMB else { return }   // silence
 
-        await emit(.transcribing)
+        emit(.transcribing)
         let transcript: String
         do { transcript = try await client.transcribe(wav) }
-        catch { await emit(.error(error.localizedDescription)); return }
+        catch { emit(.error(error.localizedDescription)); return }
 
         let words = transcript.split(whereSeparator: { $0.isWhitespace }).count
         guard words >= Config.minWords else { return }
 
-        await emit(.generating)
+        emit(.generating)
         let notes: String
         do { notes = try await client.notes(transcript) }
-        catch { await emit(.error(error.localizedDescription)); return }
+        catch { emit(.error(error.localizedDescription)); return }
 
-        segments += 1
+        // First useful chunk: infer the topic and rename the per-session file. A failed
+        // inference retries on the next chunk (mirrors note-live.js).
+        if store.sessionFile != nil, !store.isTitleResolved {
+            if let topic = try? await client.title(transcript),
+               !topic.trimmingCharacters(in: .whitespaces).isEmpty {
+                store.resolveTitle(topic)
+                if self.store === store { self.onSession?(store.sessionFile) }
+            }
+        }
+
         let dropped = notes == "-"
-        store.appendSegment(segments, transcript: transcript, notes: dropped ? nil : notes)
-        let count = segments
-        let last = dropped ? nil : notes
-        await MainActor.run { self.onSegment?(count, last) }
+        let count = store.appendSegment(transcript: transcript, notes: dropped ? nil : notes)
+        guard self.store === store else { return }
+        self.onSegment?(count, dropped ? nil : notes)
     }
 
     private func fileSizeMB(_ url: URL) -> Double {
@@ -102,7 +125,7 @@ final class NotePipeline {
         return Double(size) / 1024 / 1024
     }
 
-    private func emit(_ status: PipelineStatus) async {
-        await MainActor.run { self.onStatus?(status) }
+    private func emit(_ status: PipelineStatus) {
+        onStatus?(status)
     }
 }

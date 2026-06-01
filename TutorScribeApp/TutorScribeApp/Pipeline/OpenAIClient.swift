@@ -82,16 +82,26 @@ struct OpenAIClient {
         return try await chat(system: system, user: notesText)
     }
 
+    // MARK: Topic title — exact prompt from note-live.js#inferTranscriptTitle
+
+    /// Short human-readable topic title (3-8 words). Returns "" on failure.
+    func title(_ transcript: String) async throws -> String {
+        let system = "You title tutorial recordings. Reply with ONLY a short, human-readable title of 3-8 words describing the topic. No quotes, no trailing punctuation, no markdown."
+        let user = String(transcript.prefix(4000))
+        let out = try await chat(system: system, user: user, temperature: 0.2)
+        return out.trimmingCharacters(in: CharacterSet(charactersIn: "\"'“”‘’"))
+    }
+
     // MARK: Shared chat helper
 
-    private func chat(system: String, user: String) async throws -> String {
+    private func chat(system: String, user: String, temperature: Double = 0.3) async throws -> String {
         var req = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
         req.httpMethod = "POST"
         req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let payload: [String: Any] = [
             "model": Config.notesModel,
-            "temperature": 0.3,
+            "temperature": temperature,
             "messages": [
                 ["role": "system", "content": system],
                 ["role": "user", "content": user],
