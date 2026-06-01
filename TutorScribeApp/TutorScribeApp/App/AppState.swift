@@ -13,6 +13,11 @@ final class AppState: ObservableObject {
     @Published var lastNote: String?
     @Published var banner: String?          // transient success/error message
     @Published var lastTranscriptFile: URL? // per-session transcript, set on Stop
+    /// Default Notion page title: the topic inferred for the current/last session
+    /// (Feature 2), falling back to the latest session topic, then a date title.
+    /// Stored (not computed) so the SwiftUI text field doesn't hit disk per keystroke;
+    /// recomputed only when the per-session file changes.
+    @Published var defaultNotionTitle: String = SessionData.dateTitle()
 
     let registry = ConnectorRegistry()
     private let pipeline = NotePipeline()
@@ -23,16 +28,23 @@ final class AppState: ObservableObject {
             self?.segmentCount = count
             if let note { self?.lastNote = note }
         }
-        pipeline.onSession = { [weak self] url in self?.lastTranscriptFile = url }
+        pipeline.onSession = { [weak self] url in
+            self?.lastTranscriptFile = url
+            self?.refreshDefaultTitle()
+        }
+        refreshDefaultTitle()
     }
 
     var canPush: Bool { registry.notion.isConnected && !isRunning }
 
-    /// Default Notion page title: the topic inferred for the current/last session
-    /// (Feature 2), falling back to the latest session topic, then a date title.
-    var defaultNotionTitle: String {
-        if let file = lastTranscriptFile, let topic = SessionStore.title(of: file) { return topic }
-        return SessionStore.latestSessionTitle() ?? SessionData.dateTitle()
+    /// Recompute `defaultNotionTitle` from disk. Called once at init and whenever the
+    /// per-session file changes (named on the first chunk, finalized on Stop).
+    private func refreshDefaultTitle() {
+        if let file = lastTranscriptFile, let topic = SessionStore.title(of: file) {
+            defaultNotionTitle = topic
+        } else {
+            defaultNotionTitle = SessionStore.latestSessionTitle() ?? SessionData.dateTitle()
+        }
     }
 
     func toggle() {
