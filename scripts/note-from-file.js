@@ -33,6 +33,7 @@ const TRANSCRIPT_FILE = process.env.TRANSCRIPT_FILE
   : path.join(os.homedir(), 'tutorial_transcript.md');
 const CHUNK_MINS     = 15;
 const MODEL          = process.env.NOTES_MODEL || 'gpt-4o-mini';
+const TRANSCRIPT_PROMPT_CHARS = 600;
 const SESSION_DIR    = path.join(os.homedir(), 'TutorScribe', 'transcripts');
 const TMP_DIR        = fs.mkdtempSync(path.join(os.tmpdir(), 'notes-'));
 // ─────────────────────────────────────────────────────────────────────────────
@@ -56,12 +57,14 @@ if (!fs.existsSync(resolvedInput)) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function whisperTranscribe(audioPath) {
+async function whisperTranscribe(audioPath, promptText = '') {
   const buf      = fs.readFileSync(audioPath);
   const formData = new FormData();
   formData.append('file', new File([buf], path.basename(audioPath), { type: 'audio/mpeg' }));
   formData.append('model', 'whisper-1');
   formData.append('response_format', 'text');
+  const prompt = promptText.trim();
+  if (prompt) formData.append('prompt', prompt.slice(-TRANSCRIPT_PROMPT_CHARS));
 
   const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
     method: 'POST',
@@ -213,13 +216,14 @@ async function main() {
 
   // Transcribe + notes per chunk
   let fullTranscript = '';
+  let previousTranscriptTail = '';
   for (let i = 0; i < chunkPaths.length; i++) {
     const label = numChunks > 1 ? `${i * CHUNK_MINS}–${(i + 1) * CHUNK_MINS} min` : 'Full video';
     console.log(`\n  [${i + 1}/${chunkPaths.length}] Transcribing ${label}...`);
 
     let transcript;
     try {
-      transcript = await whisperTranscribe(chunkPaths[i]);
+      transcript = await whisperTranscribe(chunkPaths[i], previousTranscriptTail);
       console.log(`    ${transcript.split(' ').length} words`);
     } catch (e) {
       console.error(`    Transcription failed: ${e.message}`);
@@ -227,6 +231,7 @@ async function main() {
     }
 
     fullTranscript += transcript + '\n\n';
+    previousTranscriptTail = `${previousTranscriptTail}\n${transcript}`.trim().slice(-TRANSCRIPT_PROMPT_CHARS);
 
     // Always save the raw transcript, even if notes generation fails below
     fs.appendFileSync(TRANSCRIPT_FILE, `\n## ${label}\n\n${transcript}\n`);

@@ -23,7 +23,10 @@ final class AppState: ObservableObject {
     private let pipeline = NotePipeline()
 
     init() {
-        pipeline.onStatus = { [weak self] s in self?.status = s }
+        pipeline.onStatus = { [weak self] s in
+            self?.status = s
+            if s == .idle { self?.isRunning = false }
+        }
         pipeline.onSegment = { [weak self] count, note in
             self?.segmentCount = count
             if let note { self?.lastNote = note }
@@ -35,7 +38,8 @@ final class AppState: ObservableObject {
         refreshDefaultTitle()
     }
 
-    var canPush: Bool { registry.notion.isConnected && !isRunning }
+    var isFinishing: Bool { status == .finishing }
+    var canPush: Bool { registry.notion.isConnected && !isRunning && !isFinishing }
 
     /// Recompute `defaultNotionTitle` from disk. Called once at init and whenever the
     /// per-session file changes (named on the first chunk, finalized on Stop).
@@ -66,8 +70,6 @@ final class AppState: ObservableObject {
 
     func stop() {
         pipeline.stop()
-        isRunning = false
-        status = .idle
     }
 
     func openTranscript() {

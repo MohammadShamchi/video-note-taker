@@ -10,14 +10,15 @@ struct MenuContentView: View {
             header
 
             Button(action: app.toggle) {
-                Label(app.isRunning ? "Stop Transcript" : "Start Transcript",
-                      systemImage: app.isRunning ? "stop.circle.fill" : "record.circle")
+                Label(primaryButtonTitle,
+                      systemImage: primaryButtonIcon)
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 6)
             }
             .buttonStyle(.borderedProminent)
             .tint(app.isRunning ? .red : .accentColor)
+            .disabled(app.isFinishing)
 
             statusRow
 
@@ -73,7 +74,7 @@ struct MenuContentView: View {
             Text("TutorScribe").font(.headline)
             Spacer()
             Circle()
-                .fill(app.isRunning ? .green : .secondary)
+                .fill(app.isFinishing ? .orange : (app.isRunning ? .green : .secondary))
                 .frame(width: 8, height: 8)
         }
     }
@@ -90,6 +91,16 @@ struct MenuContentView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
+    }
+
+    private var primaryButtonTitle: String {
+        if app.isFinishing { return "Finishing" }
+        return app.isRunning ? "Stop Transcript" : "Start Transcript"
+    }
+
+    private var primaryButtonIcon: String {
+        if app.isFinishing { return "hourglass" }
+        return app.isRunning ? "stop.circle.fill" : "record.circle"
     }
 
     private var pushSection: some View {

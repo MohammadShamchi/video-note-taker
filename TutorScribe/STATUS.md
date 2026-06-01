@@ -1,6 +1,6 @@
 # TutorScribe — status and path to publish-ready
 
-Last updated: 2026-06-01. Branch: `main`.
+Last updated: 2026-06-01. Branch: `codex/live-transcription-reliability`.
 
 ## What this is
 
@@ -18,6 +18,7 @@ pushes a session to Notion. It is a native port of the existing Node CLI
 | Whisper transcription | Done | Native multipart upload, same as CLI. |
 | GPT notes | Done | Same prompt/model (`gpt-4o-mini`) as CLI. |
 | Local output | Done | `~/tutorial_notes.md` / `_transcript.md`, identical markdown to CLI. |
+| Stop/drain lifecycle | Done | Stop flushes active recording and drains queued chunks before reporting idle. Build verified; full installed-app live run still pending. |
 | Notion connector | Done | Access-token auth; creates one sub-page per session. Verified end to end. |
 | Connector protocol | Done | Pluggable; other apps add by conforming + one Settings row. |
 | Secrets | Done | Keychain (OpenAI key, Notion token). |
@@ -30,9 +31,10 @@ pushes a session to Notion. It is a native port of the existing Node CLI
 from BlackHole. On 2026-06-01, `npm run macos:build`, `npm run macos:dmg`, and
 `npm run macos:install` succeeded; the app is installed at
 `~/Applications/TutorScribeApp.app`, and `hdiutil verify dist/TutorScribeApp.dmg`
-passes. **Not yet confirmed by a full run:** live audio -> notes -> Notion in one
-go from the installed app (pending a real play-through with mic permission
-granted).
+passes. On 2026-06-01, the reliability branch also built successfully after
+adding queue/drain processing and transcript-first writes. **Not yet confirmed by
+a full run:** live audio -> notes -> Notion in one go from the installed app
+(pending a real play-through with mic permission granted).
 
 This is now a solid **personal installed / developer build**: run it from Xcode
 while developing, or install the Release app locally for normal day-to-day use.
@@ -126,7 +128,8 @@ npm run macos:dmg       # builds Release and creates dist/TutorScribeApp.dmg
 ```
 
 **Next high-leverage product task:** Phase 2 (ScreenCaptureKit capture). The one
-loose end from Phase 0 is confirming a full live run from the installed app.
+loose end from Phase 0 is confirming a full live run from the installed app,
+including Stop during active speech and final queued-chunk processing.
 
 ## Where the code lives
 

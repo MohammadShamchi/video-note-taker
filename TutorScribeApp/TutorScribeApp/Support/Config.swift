@@ -26,7 +26,7 @@ enum Config {
         UserDefaults.standard.string(forKey: kNotesModel) ?? "gpt-4o-mini"
     }
 
-    /// Words below this are treated as silence and skipped (matches note-live.js).
+    /// Notes are skipped below this count, but non-empty transcripts are still saved.
     static let minWords = 15
 
     /// Chunks smaller than this (MB) are treated as silence.

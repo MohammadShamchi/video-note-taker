@@ -40,6 +40,7 @@ const TRANSCRIPT_FILE = process.env.TRANSCRIPT_FILE
 const CHUNK_SECS      = parseInt(process.env.CHUNK_SECS || '60', 10);
 const MODEL           = process.env.NOTES_MODEL || 'gpt-4o-mini';
 const MIN_WORDS       = 15;
+const TRANSCRIPT_PROMPT_CHARS = 600;
 const SESSION_DIR     = path.join(os.homedir(), 'TutorScribe', 'transcripts');
 const TMP_DIR         = fs.mkdtempSync(path.join(os.tmpdir(), 'live-notes-'));
 // ─────────────────────────────────────────────────────────────────────────────
@@ -52,6 +53,10 @@ if (!OPENAI_API_KEY) {
 
 let totalSegments  = 0;
 let isShuttingDown = false;
+let queueConsumerPromise = null;
+let processingChunk = null;
+let previousTranscriptTail = '';
+const processingQueue = [];
 
 // Per-session transcript copy. Starts at a pending path; renamed to a topic-based
 // filename once the first useful chunk lets us infer the topic.
@@ -80,12 +85,14 @@ function detectBlackholeDevice() {
 
 // ── OpenAI helpers ────────────────────────────────────────────────────────────
 
-async function whisperTranscribe(audioPath) {
+async function whisperTranscribe(audioPath, promptText = '') {
   const buf      = fs.readFileSync(audioPath);
   const formData = new FormData();
   formData.append('file', new File([buf], 'audio.wav', { type: 'audio/wav' }));
   formData.append('model', 'whisper-1');
   formData.append('response_format', 'text');
+  const prompt = promptText.trim();
+  if (prompt) formData.append('prompt', prompt.slice(-TRANSCRIPT_PROMPT_CHARS));
 
   const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
     method: 'POST',
@@ -176,6 +183,14 @@ function transcriptHeader(title, date) {
   return `# ${title}\n\n_Created: ${created}_\n\n---\n`;
 }
 
+function countWords(text) {
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
+function updateTranscriptTail(transcript) {
+  previousTranscriptTail = `${previousTranscriptTail}\n${transcript}`.trim().slice(-TRANSCRIPT_PROMPT_CHARS);
+}
+
 // ── Recording ─────────────────────────────────────────────────────────────────
 
 function recordChunk(deviceIdx, outPath) {
@@ -185,7 +200,10 @@ function recordChunk(deviceIdx, outPath) {
       '-t', String(CHUNK_SECS), '-ar', '16000', '-ac', '1', outPath,
     ];
     const proc = spawn('ffmpeg', args, { stdio: 'ignore' });
-    proc.on('close', code => (code === 0 || code === 255 ? resolve() : reject(new Error(`ffmpeg exit ${code}`))));
+    proc.on('close', code => {
+      if (recordChunk._proc === proc) recordChunk._proc = null;
+      return code === 0 || code === 255 ? resolve() : reject(new Error(`ffmpeg exit ${code}`));
+    });
     proc.on('error', reject);
     recordChunk._proc = proc;
   });
@@ -194,27 +212,71 @@ recordChunk._proc = null;
 
 // ── Processing ────────────────────────────────────────────────────────────────
 
-async function processChunk(audioPath) {
+function appendTranscriptSegment(transcript, time) {
+  totalSegments++;
+  const segmentNumber = totalSegments;
+  const block = `\n## Segment ${segmentNumber} — ${time}\n\n${transcript}\n`;
+  fs.appendFileSync(TRANSCRIPT_FILE, block);
+  if (sessionTranscriptPath) {
+    try { fs.appendFileSync(sessionTranscriptPath, block); } catch {}
+  }
+  return segmentNumber;
+}
+
+async function resolveSessionTitleFrom(transcript) {
+  if (!sessionTranscriptPath || titleResolved) return;
+  try {
+    const topic = await inferTranscriptTitle(transcript);
+    if (!topic) return;
+    const finalPath = path.join(
+      SESSION_DIR,
+      `${timestampForFilename(sessionDate)}-${slugifyTitle(topic)}.md`
+    );
+    const fixed = fs.readFileSync(sessionTranscriptPath, 'utf8').replace(/^#.*\n/, `# ${topic}\n`);
+    fs.writeFileSync(finalPath, fixed);
+    if (finalPath !== sessionTranscriptPath) fs.unlinkSync(sessionTranscriptPath);
+    sessionTranscriptPath = finalPath;
+    titleResolved = true;
+  } catch {
+    // Keep writing to the pending path; retry on the next useful chunk.
+  }
+}
+
+async function processQueuedChunk(chunk) {
+  const { audioPath, index, completedAt } = chunk;
+  const label = `chunk ${index + 1}`;
   const sizeMB = (fs.statSync(audioPath).size / 1024 / 1024).toFixed(2);
   if (parseFloat(sizeMB) < 0.005) {
-    process.stdout.write('  (silence — skipped)\n');
+    process.stdout.write(`  [${label}] silence — skipped\n`);
     return;
   }
 
-  process.stdout.write('  Transcribing...');
+  process.stdout.write(`  [${label}] Transcribing...`);
   let transcript;
   try {
-    transcript = await whisperTranscribe(audioPath);
+    transcript = await whisperTranscribe(audioPath, previousTranscriptTail);
   } catch (e) {
     console.log(` failed: ${e.message}`);
     return;
   }
 
-  const words = transcript.split(/\s+/).filter(Boolean).length;
-  if (words < MIN_WORDS) {
-    process.stdout.write(` (only ${words} words — skipped)\n`);
+  const words = countWords(transcript);
+  if (words === 0) {
+    process.stdout.write(' no words — skipped\n');
     return;
   }
+
+  const time = completedAt.toLocaleTimeString();
+  const segmentNumber = appendTranscriptSegment(transcript, time);
+  updateTranscriptTail(transcript);
+
+  if (words < MIN_WORDS) {
+    process.stdout.write(` ${words} words. Transcript saved; notes skipped.\n`);
+    return;
+  }
+
+  await resolveSessionTitleFrom(transcript);
+
   process.stdout.write(` ${words} words. Generating notes...`);
 
   let notes;
@@ -225,53 +287,55 @@ async function processChunk(audioPath) {
     return;
   }
 
-  // Always save raw transcript
-  const time = new Date().toLocaleTimeString();
-  totalSegments++;
-  fs.appendFileSync(TRANSCRIPT_FILE, `\n## Segment ${totalSegments} — ${time}\n\n${transcript}\n`);
-
-  // First useful chunk: infer the topic and rename the pending per-session file.
-  // Only mark the title resolved once a non-empty topic is successfully written and
-  // renamed, so a failed inference or filesystem error retries on the next chunk.
-  if (sessionTranscriptPath && !titleResolved) {
-    try {
-      const topic = await inferTranscriptTitle(transcript);
-      if (topic) {
-        const finalPath = path.join(
-          SESSION_DIR,
-          `${timestampForFilename(sessionDate)}-${slugifyTitle(topic)}.md`
-        );
-        const fixed = fs.readFileSync(sessionTranscriptPath, 'utf8').replace(/^#.*\n/, `# ${topic}\n`);
-        fs.writeFileSync(finalPath, fixed);
-        if (finalPath !== sessionTranscriptPath) fs.unlinkSync(sessionTranscriptPath);
-        sessionTranscriptPath = finalPath;
-        titleResolved = true;
-      }
-    } catch { /* keep writing to the pending path; retry on the next chunk */ }
-  }
-  if (sessionTranscriptPath) {
-    try { fs.appendFileSync(sessionTranscriptPath, `\n## Segment ${totalSegments} — ${time}\n\n${transcript}\n`); } catch {}
-  }
-
   if (notes === '-') {
     process.stdout.write(' (nothing noteworthy)\n');
     return;
   }
 
-  fs.appendFileSync(OUTPUT_FILE, `\n## Segment ${totalSegments} — ${time}\n\n${notes}\n`);
+  fs.appendFileSync(OUTPUT_FILE, `\n## Segment ${segmentNumber} — ${time}\n\n${notes}\n`);
   console.log(' ✓ saved');
+}
+
+function enqueueChunk(chunk) {
+  processingQueue.push(chunk);
+  const backlog = processingQueue.length + (processingChunk ? 1 : 0);
+  if (backlog > 1) {
+    console.log(`  processing backlog: ${backlog} chunks`);
+  }
+  ensureQueueConsumer();
+}
+
+function ensureQueueConsumer() {
+  if (queueConsumerPromise) return;
+  queueConsumerPromise = (async () => {
+    await new Promise(resolve => setImmediate(resolve));
+    while (processingQueue.length) {
+      const chunk = processingQueue.shift();
+      processingChunk = chunk;
+      try {
+        await processQueuedChunk(chunk);
+      } catch (e) {
+        console.error(`  [chunk ${chunk.index + 1}] failed: ${e.message}`);
+      } finally {
+        processingChunk = null;
+        try { fs.unlinkSync(chunk.audioPath); } catch {}
+      }
+    }
+  })().finally(() => {
+    queueConsumerPromise = null;
+    if (processingQueue.length) ensureQueueConsumer();
+  });
+}
+
+async function waitForQueueDrained() {
+  while (queueConsumerPromise) {
+    await queueConsumerPromise;
+  }
 }
 
 // ── Graceful shutdown ─────────────────────────────────────────────────────────
 
-process.on('SIGINT', async () => {
-  if (isShuttingDown) return;
-  isShuttingDown = true;
-  if (recordChunk._proc) {
-    try { recordChunk._proc.kill('SIGTERM'); } catch {}
-  }
-  console.log('\n\n  Stopping — processing last chunk...');
-
+function finalizeSessionFile() {
   // If no topic was ever resolved, rename the pending file to a clean fallback name
   // so we don't leave a pending-*.md behind.
   if (sessionTranscriptPath && !titleResolved) {
@@ -283,13 +347,26 @@ process.on('SIGINT', async () => {
       sessionTranscriptPath = finalPath;
     } catch {}
   }
+}
 
+function printSummary() {
   console.log(`\n  Done! ${totalSegments} segment(s) saved.`);
   console.log(`  Notes      → ${OUTPUT_FILE}`);
   console.log(`  Transcript → ${TRANSCRIPT_FILE}`);
   if (sessionTranscriptPath) console.log(`  Session    → ${sessionTranscriptPath}`);
   console.log('');
-  process.exit(0);
+}
+
+process.on('SIGINT', () => {
+  if (isShuttingDown) {
+    console.log('\n  Force stop requested — queued chunks may remain unprocessed.\n');
+    process.exit(130);
+  }
+  isShuttingDown = true;
+  if (recordChunk._proc) {
+    try { recordChunk._proc.kill('SIGTERM'); } catch {}
+  }
+  console.log('\n\n  Stopping — finishing active recording and draining queued chunks...');
 });
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -347,17 +424,25 @@ async function main() {
 
   let chunkNum = 0;
   while (!isShuttingDown) {
-    const outPath = path.join(TMP_DIR, `chunk_${chunkNum++}.wav`);
+    const index = chunkNum++;
+    const outPath = path.join(TMP_DIR, `chunk_${index}.wav`);
     process.stdout.write(`  [${new Date().toLocaleTimeString()}] Recording ${CHUNK_SECS}s...`);
     try {
       await recordChunk(deviceIdx, outPath);
-      process.stdout.write(' done. ');
-      await processChunk(outPath);
-      try { fs.unlinkSync(outPath); } catch {}
+      console.log(' done. queued for processing.');
+      enqueueChunk({ index, audioPath: outPath, completedAt: new Date() });
     } catch (e) {
       if (!isShuttingDown) console.error(` error: ${e.message}`);
+      else {
+        try { fs.unlinkSync(outPath); } catch {}
+      }
     }
   }
+
+  await waitForQueueDrained();
+  finalizeSessionFile();
+  try { fs.rmSync(TMP_DIR, { recursive: true, force: true }); } catch {}
+  printSummary();
 }
 
 main().catch(e => { console.error(e.message); process.exit(1); });
