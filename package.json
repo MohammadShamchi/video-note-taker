@@ -6,7 +6,10 @@
   "scripts": {
     "live": "node scripts/note-live.js",
     "file": "node scripts/note-from-file.js",
-    "push-notion": "node scripts/push-to-notion.js"
+    "push-notion": "node scripts/push-to-notion.js",
+    "macos:build": "bash scripts/build-macos-app.sh",
+    "macos:install": "bash scripts/install-macos-app.sh",
+    "macos:dmg": "bash scripts/package-macos-dmg.sh"
   },
   "keywords": [
     "openai",

@@ -41,7 +41,7 @@ brew install ffmpeg blackhole-2ch
 Then Audio MIDI Setup → create a Multi-Output Device (Built-in Output +
 BlackHole 2ch) and select it as the system output, so the app can hear playback.
 
-## 5. Run
+## 5. Run from Xcode
 
 Build & run. A waveform icon appears in the menu bar.
 
@@ -50,7 +50,32 @@ Build & run. A waveform icon appears in the menu bar.
   `~/tutorial_notes.md` / `~/tutorial_transcript.md` grow (same format as the CLI).
 - **Stop**, then **Push to Notion**.
 
-## 6. Notion OAuth
+## 6. Install for personal use
+
+After the app builds from Xcode once, you can install and run a Release build
+without opening Xcode:
+
+```bash
+npm run macos:install
+```
+
+This installs the app to `~/Applications/TutorScribeApp.app`. You can launch it
+from Finder, Spotlight, or:
+
+```bash
+open ~/Applications/TutorScribeApp.app
+```
+
+To create a simple personal DMG:
+
+```bash
+npm run macos:dmg
+```
+
+The DMG is written to `dist/TutorScribeApp.dmg`. This is for personal use only:
+it is not Developer ID signed, notarized, or ready for public distribution.
+
+## 7. Notion OAuth
 
 1. Create an integration at <https://www.notion.com/my-integrations> →
    **New integration ▸ Public** (OAuth). Add redirect URI **`tutorscribe://oauth`**.

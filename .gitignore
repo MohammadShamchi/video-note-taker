@@ -21,3 +21,5 @@ node_modules/
 *.xcuserstate
 DerivedData/
 .build/
+build/
+dist/

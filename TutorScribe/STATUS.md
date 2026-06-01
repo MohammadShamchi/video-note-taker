@@ -1,6 +1,6 @@
 # TutorScribe — status and path to publish-ready
 
-Last updated: 2026-06-01. Branch: `feat/macos-menu-bar-app`.
+Last updated: 2026-06-01. Branch: `main`.
 
 ## What this is
 
@@ -22,19 +22,25 @@ pushes a session to Notion. It is a native port of the existing Node CLI
 | Connector protocol | Done | Pluggable; other apps add by conforming + one Settings row. |
 | Secrets | Done | Keychain (OpenAI key, Notion token). |
 | Settings UI | Done | API key, model, chunk size, Notion connect + parent-page picker. |
-| Build config | Done | Sandbox off (for ffmpeg), mic usage string, builds clean. |
+| Build config | Done | Sandbox off (for ffmpeg), mic usage string, macOS 14.0 deployment target. |
+| Personal install | Done | `npm run macos:install` builds Release and installs to `~/Applications/TutorScribeApp.app`. |
+| Personal DMG | Done | `npm run macos:dmg` creates a simple local DMG at `dist/TutorScribeApp.dmg`. |
 
 **Verified:** build succeeds; Notion push creates a real page; ffmpeg captures
-from BlackHole. **Not yet confirmed by a full run:** live audio -> notes -> Notion
-in one go from the app (pending a real play-through with mic permission granted).
+from BlackHole. On 2026-06-01, `npm run macos:build`, `npm run macos:dmg`, and
+`npm run macos:install` succeeded; the app is installed at
+`~/Applications/TutorScribeApp.app`, and `hdiutil verify dist/TutorScribeApp.dmg`
+passes. **Not yet confirmed by a full run:** live audio -> notes -> Notion in one
+go from the installed app (pending a real play-through with mic permission
+granted).
 
-This is a solid **personal / developer build**: run it from Xcode, on your own
-machine, with your own keys. It is not yet something an ordinary person can
-download and use.
+This is now a solid **personal installed / developer build**: run it from Xcode
+while developing, or install the Release app locally for normal day-to-day use.
+It is not yet something an ordinary person can download and use.
 
 ## The honest gap to "publish-ready for everyone"
 
-Three things make the current build developer-only. Each is real work.
+Four things make the current build developer-only. Each is real work.
 
 ### 1. The BlackHole + ffmpeg dependency (biggest blocker)
 Today a user must `brew install ffmpeg blackhole-2ch`, reboot, create a
@@ -83,6 +89,9 @@ Estimated effort: ~2-3 days.
 ## Suggested phases
 
 - **Phase 0 — Personal use (DONE).** Works from Xcode with your keys.
+- **Phase 0.5 — Personal installed app (DONE).** Builds a Release `.app`,
+  installs it to `~/Applications`, and can create a simple unsigned personal
+  `.dmg`. This avoids opening Xcode for daily use.
 - **Phase 1 — Shareable with friends.** Sign + notarize a `.dmg`, bundle ffmpeg,
   add an icon and a minimal first-run screen. Still uses BlackHole. ~2-3 days.
 - **Phase 2 — No-setup capture.** ScreenCaptureKit replaces BlackHole. This is the
@@ -98,18 +107,26 @@ by Phase 2 (capture rewrite) and the Apple Developer / notarization setup.
 
 1. **Distribution: DECIDED -> Developer ID `.dmg`.** Sign + notarize, keep the
    current (unsandboxed, ffmpeg-based) design. Needs an Apple Developer account.
+   For personal use only, use the unsigned local install/DMG scripts.
 2. **Keys:** open — bring-your-own OpenAI key (recommended, no backend) vs hosted
    proxy you pay for.
 3. **Capture:** open — commit to the ScreenCaptureKit rewrite (removes BlackHole),
    the single highest-leverage change for public use.
 
-## Current state: PAUSED (2026-06-01)
+## Current state: PERSONAL-INSTALL READY (2026-06-01)
 
-Stopped at Phase 0 (working personal build) by choice. Nothing in progress.
+Phase 0.5 is implemented for personal use. Generated app bundles, DMGs, and
+DerivedData live under ignored `dist/` and `build/` directories.
 
-**To resume:** `git checkout feat/macos-menu-bar-app`, open `TutorScribeApp/`,
-⌘R. The next high-leverage task is Phase 2 (ScreenCaptureKit capture). The one
-loose end from Phase 0 is confirming a full live run from the app.
+Personal commands:
+
+```bash
+npm run macos:install   # builds Release and installs ~/Applications/TutorScribeApp.app
+npm run macos:dmg       # builds Release and creates dist/TutorScribeApp.dmg
+```
+
+**Next high-leverage product task:** Phase 2 (ScreenCaptureKit capture). The one
+loose end from Phase 0 is confirming a full live run from the installed app.
 
 ## Where the code lives
 
