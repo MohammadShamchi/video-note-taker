@@ -89,7 +89,7 @@ struct OpenAIClient {
         let system = "You title tutorial recordings. Reply with ONLY a short, human-readable title of 3-8 words describing the topic. No quotes, no trailing punctuation, no markdown."
         let user = String(transcript.prefix(4000))
         let out = try await chat(system: system, user: user, temperature: 0.2)
-        return out.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        return out.trimmingCharacters(in: CharacterSet(charactersIn: "\"'“”‘’"))
     }
 
     // MARK: Shared chat helper

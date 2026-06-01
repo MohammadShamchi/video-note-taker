@@ -55,7 +55,7 @@ struct MenuContentView: View {
     private func transcriptSavedSection(_ file: URL) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Transcript saved").font(.caption).foregroundStyle(.secondary)
-            Text(file.path)
+            Text((file.path as NSString).abbreviatingWithTildeInPath)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)

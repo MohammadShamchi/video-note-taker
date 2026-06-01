@@ -13,6 +13,7 @@ final class SessionStore {
     /// Per-session transcript copy. Starts at a `pending-…` path, renamed to a
     /// topic-based filename once the first useful chunk lets us infer the topic.
     private(set) var sessionFile: URL?
+    private(set) var segmentCount = 0
     private var titleResolved = false
     private var sessionDate = Date()
 
@@ -56,6 +57,7 @@ final class SessionStore {
     func startSession(date: Date = Date()) {
         sessionDate = date
         titleResolved = false
+        segmentCount = 0
         let stamp = Self.stampFormatter.string(from: date)
         write(notesFile, label: "Notes", stamp: stamp)
         write(transcriptFile, label: "Transcript", stamp: stamp)
@@ -81,9 +83,13 @@ final class SessionStore {
         }
     }
 
-    /// Append one segment. Notes file is skipped when `notes` is nil ("-" result);
-    /// the transcript files are always saved.
-    func appendSegment(_ n: Int, transcript: String, notes: String?, date: Date = Date()) {
+    /// Append one segment, advancing the session's segment counter. Notes file is
+    /// skipped when `notes` is nil ("-" result); the transcript files are always saved.
+    /// Returns the new segment number.
+    @discardableResult
+    func appendSegment(transcript: String, notes: String?, date: Date = Date()) -> Int {
+        segmentCount += 1
+        let n = segmentCount
         let time = Self.timeFormatter.string(from: date)
         let block = "\n## Segment \(n) — \(time)\n\n\(transcript)\n"
         append(transcriptFile, block)
@@ -91,6 +97,7 @@ final class SessionStore {
         if let notes {
             append(notesFile, "\n## Segment \(n) — \(time)\n\n\(notes)\n")
         }
+        return n
     }
 
     /// First useful chunk: rename the pending per-session file to a topic-based name and

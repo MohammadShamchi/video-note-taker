@@ -52,7 +52,12 @@ final class AppState: ObservableObject {
     }
 
     func openTranscript() {
-        if let url = lastTranscriptFile { NSWorkspace.shared.open(url) }
+        guard let url = lastTranscriptFile else { return }
+        if FileManager.default.fileExists(atPath: url.path) {
+            NSWorkspace.shared.open(url)
+        } else {
+            banner = "Transcript file no longer exists."
+        }
     }
 
     func pushToNotion(title: String) {
