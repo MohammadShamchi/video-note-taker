@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Combine
+import AppKit
 
 /// Top-level view model: owns the pipeline and connector registry, exposes
 /// observable state to the menu bar UI.
@@ -11,6 +12,7 @@ final class AppState: ObservableObject {
     @Published var segmentCount = 0
     @Published var lastNote: String?
     @Published var banner: String?          // transient success/error message
+    @Published var lastTranscriptFile: URL? // per-session transcript, set on Stop
 
     let registry = ConnectorRegistry()
     private let pipeline = NotePipeline()
@@ -21,6 +23,7 @@ final class AppState: ObservableObject {
             self?.segmentCount = count
             if let note { self?.lastNote = note }
         }
+        pipeline.onSession = { [weak self] url in self?.lastTranscriptFile = url }
     }
 
     var canPush: Bool { registry.notion.isConnected && !isRunning }
@@ -36,6 +39,7 @@ final class AppState: ObservableObject {
             segmentCount = 0
             lastNote = nil
             banner = nil
+            lastTranscriptFile = nil
         } catch {
             status = .error(error.localizedDescription)
         }
@@ -45,6 +49,10 @@ final class AppState: ObservableObject {
         pipeline.stop()
         isRunning = false
         status = .idle
+    }
+
+    func openTranscript() {
+        if let url = lastTranscriptFile { NSWorkspace.shared.open(url) }
     }
 
     func pushToNotion(title: String) {

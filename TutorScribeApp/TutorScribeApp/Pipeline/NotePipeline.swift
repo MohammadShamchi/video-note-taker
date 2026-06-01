@@ -23,6 +23,8 @@ enum PipelineStatus: Equatable {
 final class NotePipeline {
     var onStatus: (@MainActor (PipelineStatus) -> Void)?
     var onSegment: (@MainActor (_ count: Int, _ lastNote: String?) -> Void)?
+    /// Fires with the per-session transcript file URL once it's named, and again on stop.
+    var onSession: (@MainActor (URL?) -> Void)?
 
     private let capture = AudioCapture()
     private let store = SessionStore()
@@ -60,6 +62,8 @@ final class NotePipeline {
                 }
             }
             try? FileManager.default.removeItem(at: tmp)
+            let final = self.store.finishSession()
+            await MainActor.run { self.onSession?(final) }
             await self.emit(.idle)
         }
     }
@@ -90,6 +94,18 @@ final class NotePipeline {
         catch { await emit(.error(error.localizedDescription)); return }
 
         segments += 1
+
+        // First useful chunk: infer the topic and rename the per-session file. A failed
+        // inference retries on the next chunk (mirrors note-live.js).
+        if store.sessionFile != nil, !store.isTitleResolved {
+            if let topic = try? await client.title(transcript),
+               !topic.trimmingCharacters(in: .whitespaces).isEmpty {
+                store.resolveTitle(topic)
+                let named = store.sessionFile
+                await MainActor.run { self.onSession?(named) }
+            }
+        }
+
         let dropped = notes == "-"
         store.appendSegment(segments, transcript: transcript, notes: dropped ? nil : notes)
         let count = segments

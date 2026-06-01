@@ -21,6 +21,11 @@ struct MenuContentView: View {
 
             statusRow
 
+            if !app.isRunning, let file = app.lastTranscriptFile {
+                Divider()
+                transcriptSavedSection(file)
+            }
+
             if let note = app.lastNote {
                 Divider()
                 Text("Last note").font(.caption).foregroundStyle(.secondary)
@@ -45,6 +50,21 @@ struct MenuContentView: View {
         }
         .padding(16)
         .frame(width: 320)
+    }
+
+    private func transcriptSavedSection(_ file: URL) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Transcript saved").font(.caption).foregroundStyle(.secondary)
+            Text(file.path)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Button { app.openTranscript() } label: {
+                Label("Open Transcript", systemImage: "doc.text")
+                    .frame(maxWidth: .infinity)
+            }
+        }
     }
 
     private var header: some View {
