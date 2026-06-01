@@ -33,10 +33,11 @@ Three scripts, no database, no background daemon, no SaaS dependency beyond an O
 | `note-from-file.js` | Point it at a local mp4/mp3/mov file and get a full transcript + notes + summary |
 | `push-to-notion.js` | Export the latest session to a structured Notion page |
 
-Both live and file modes produce two files simultaneously:
+Both live and file modes produce these files:
 
 - **`~/tutorial_notes.md`** — AI-generated bullet points, one section per minute
 - **`~/tutorial_transcript.md`** — full verbatim transcript with timestamps, so you can go back and verify anything
+- **`~/TutorScribe/transcripts/<date>-<topic>.md`** — a per-session copy of the transcript, named after the topic inferred from the audio (e.g. `2026-06-01-21-30-react-hooks-deep-dive.md`). It opens with a `# Topic` heading and a `_Created: …_` timestamp, so past sessions are easy to find on disk. The two files above are still written unchanged for backward compatibility.
 
 ---
 
@@ -181,7 +182,7 @@ npm run file -- ~/Downloads/lecture.mp4
 Supports any ffmpeg-compatible format: mp4, mkv, mov, mp3, wav, m4a, webm.
 Files longer than ~50 minutes are automatically split into 15-minute chunks and processed in order, with an overall summary at the end.
 
-Like live mode, file mode writes both files: **`~/tutorial_notes.md`** (AI bullet notes per segment, plus an overall summary for multi-chunk videos) and **`~/tutorial_transcript.md`** (the full verbatim transcript, one section per chunk).
+Like live mode, file mode writes **`~/tutorial_notes.md`** (AI bullet notes per segment, plus an overall summary for multi-chunk videos), **`~/tutorial_transcript.md`** (the full verbatim transcript, one section per chunk), and a topic-named per-session copy under **`~/TutorScribe/transcripts/`**.
 
 ---
 
@@ -212,7 +213,9 @@ All options live in `.env`:
 # Required
 OPENAI_API_KEY=sk-proj-...
 
-# Optional — output file locations
+# Optional — output file locations (the compatibility files)
+# A topic-named per-session transcript copy is always also written to
+# ~/TutorScribe/transcripts/<date>-<topic>.md regardless of these overrides.
 NOTES_FILE=~/tutorial_notes.md
 TRANSCRIPT_FILE=~/tutorial_transcript.md
 

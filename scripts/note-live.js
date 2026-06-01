@@ -40,6 +40,7 @@ const TRANSCRIPT_FILE = process.env.TRANSCRIPT_FILE
 const CHUNK_SECS      = parseInt(process.env.CHUNK_SECS || '60', 10);
 const MODEL           = process.env.NOTES_MODEL || 'gpt-4o-mini';
 const MIN_WORDS       = 15;
+const SESSION_DIR     = path.join(os.homedir(), 'TutorScribe', 'transcripts');
 const TMP_DIR         = fs.mkdtempSync(path.join(os.tmpdir(), 'live-notes-'));
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -51,6 +52,12 @@ if (!OPENAI_API_KEY) {
 
 let totalSegments  = 0;
 let isShuttingDown = false;
+
+// Per-session transcript copy. Starts at a pending path; renamed to a topic-based
+// filename once the first useful chunk lets us infer the topic.
+const sessionDate          = new Date();
+let sessionTranscriptPath  = null;
+let titleResolved          = false;
 
 // ── Device detection ──────────────────────────────────────────────────────────
 
@@ -121,6 +128,54 @@ If nothing useful, reply with just a dash "-".`,
   return json.choices[0].message.content.trim();
 }
 
+// Infer a short, human-readable topic title from transcript text. Returns '' on failure.
+async function inferTranscriptTitle(transcript) {
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: MODEL,
+        temperature: 0.2,
+        messages: [
+          { role: 'system', content: 'You title tutorial recordings. Reply with ONLY a short, human-readable title of 3-8 words describing the topic. No quotes, no trailing punctuation, no markdown.' },
+          { role: 'user', content: transcript.slice(0, 4000) },
+        ],
+      }),
+    });
+    if (!res.ok) return '';
+    const json = await res.json();
+    return (json.choices?.[0]?.message?.content || '').trim().replace(/^["']+|["']+$/g, '');
+  } catch {
+    return '';
+  }
+}
+
+// Filesystem-safe, stable slug: lowercase ASCII, hyphen-separated, diacritics stripped, max 80 chars.
+function slugifyTitle(title) {
+  const slug = (title || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')   // strip diacritics
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80)
+    .replace(/-+$/g, '');
+  return slug || 'untitled';
+}
+
+function timestampForFilename(date) {
+  const p = n => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}-${p(date.getHours())}-${p(date.getMinutes())}`;
+}
+
+function transcriptHeader(title, date) {
+  const created = date.toLocaleString('en-GB', {
+    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+  return `# ${title}\n\n_Created: ${created}_\n\n---\n`;
+}
+
 // ── Recording ─────────────────────────────────────────────────────────────────
 
 function recordChunk(deviceIdx, outPath) {
@@ -175,6 +230,29 @@ async function processChunk(audioPath) {
   totalSegments++;
   fs.appendFileSync(TRANSCRIPT_FILE, `\n## Segment ${totalSegments} — ${time}\n\n${transcript}\n`);
 
+  // First useful chunk: infer the topic and rename the pending per-session file.
+  // Only mark the title resolved once a non-empty topic is successfully written and
+  // renamed, so a failed inference or filesystem error retries on the next chunk.
+  if (sessionTranscriptPath && !titleResolved) {
+    try {
+      const topic = await inferTranscriptTitle(transcript);
+      if (topic) {
+        const finalPath = path.join(
+          SESSION_DIR,
+          `${timestampForFilename(sessionDate)}-${slugifyTitle(topic)}.md`
+        );
+        const fixed = fs.readFileSync(sessionTranscriptPath, 'utf8').replace(/^#.*\n/, `# ${topic}\n`);
+        fs.writeFileSync(finalPath, fixed);
+        if (finalPath !== sessionTranscriptPath) fs.unlinkSync(sessionTranscriptPath);
+        sessionTranscriptPath = finalPath;
+        titleResolved = true;
+      }
+    } catch { /* keep writing to the pending path; retry on the next chunk */ }
+  }
+  if (sessionTranscriptPath) {
+    try { fs.appendFileSync(sessionTranscriptPath, `\n## Segment ${totalSegments} — ${time}\n\n${transcript}\n`); } catch {}
+  }
+
   if (notes === '-') {
     process.stdout.write(' (nothing noteworthy)\n');
     return;
@@ -193,9 +271,24 @@ process.on('SIGINT', async () => {
     try { recordChunk._proc.kill('SIGTERM'); } catch {}
   }
   console.log('\n\n  Stopping — processing last chunk...');
+
+  // If no topic was ever resolved, rename the pending file to a clean fallback name
+  // so we don't leave a pending-*.md behind.
+  if (sessionTranscriptPath && !titleResolved) {
+    try {
+      const finalPath = path.join(SESSION_DIR, `${timestampForFilename(sessionDate)}-tutorial-session.md`);
+      const fixed = fs.readFileSync(sessionTranscriptPath, 'utf8').replace(/^#.*\n/, '# Tutorial Session\n');
+      fs.writeFileSync(finalPath, fixed);
+      if (finalPath !== sessionTranscriptPath) fs.unlinkSync(sessionTranscriptPath);
+      sessionTranscriptPath = finalPath;
+    } catch {}
+  }
+
   console.log(`\n  Done! ${totalSegments} segment(s) saved.`);
   console.log(`  Notes      → ${OUTPUT_FILE}`);
-  console.log(`  Transcript → ${TRANSCRIPT_FILE}\n`);
+  console.log(`  Transcript → ${TRANSCRIPT_FILE}`);
+  if (sessionTranscriptPath) console.log(`  Session    → ${sessionTranscriptPath}`);
+  console.log('');
   process.exit(0);
 });
 
@@ -229,6 +322,16 @@ async function main() {
 
   if (!fs.existsSync(TRANSCRIPT_FILE)) fs.writeFileSync(TRANSCRIPT_FILE, initHeader('Transcript'));
   else fs.appendFileSync(TRANSCRIPT_FILE, `\n\n---\n\n_New session: ${sessionStamp}_\n\n---\n`);
+
+  // Open the per-session transcript copy under a pending name; renamed on first useful chunk.
+  try {
+    fs.mkdirSync(SESSION_DIR, { recursive: true });
+    sessionTranscriptPath = path.join(SESSION_DIR, `pending-${timestampForFilename(sessionDate)}.md`);
+    fs.writeFileSync(sessionTranscriptPath, transcriptHeader('Tutorial session (identifying topic…)', sessionDate));
+  } catch (e) {
+    sessionTranscriptPath = null;
+    console.error(`  Per-session transcript init failed: ${e.message}`);
+  }
 
   console.log(`
   note-live.js
