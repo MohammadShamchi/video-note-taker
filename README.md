@@ -62,7 +62,8 @@ Both live and file modes produce two files simultaneously:
 │                                                              │
 │  video.mp4 → ffmpeg strips audio → 15-min mp3 chunks        │
 │           → Whisper per chunk → GPT-4o-mini notes           │
-│           → final summary → tutorial_notes.md               │
+│           → final summary                                   │
+│           → tutorial_notes.md + tutorial_transcript.md       │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -179,6 +180,8 @@ npm run file -- ~/Downloads/lecture.mp4
 
 Supports any ffmpeg-compatible format: mp4, mkv, mov, mp3, wav, m4a, webm.
 Files longer than ~50 minutes are automatically split into 15-minute chunks and processed in order, with an overall summary at the end.
+
+Like live mode, file mode writes both files: **`~/tutorial_notes.md`** (AI bullet notes per segment, plus an overall summary for multi-chunk videos) and **`~/tutorial_transcript.md`** (the full verbatim transcript, one section per chunk).
 
 ---
 
