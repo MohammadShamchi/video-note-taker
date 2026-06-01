@@ -94,14 +94,22 @@ Estimated effort: ~2-3 days.
 Realistic total to a genuine public 1.0: **~2-3 weeks** of focused work, dominated
 by Phase 2 (capture rewrite) and the Apple Developer / notarization setup.
 
-## Decisions needed from you
+## Decisions
 
-1. **Distribution:** Developer ID `.dmg` (recommended, keeps current design) vs
-   Mac App Store (forces a sandbox-safe rewrite). 
-2. **Keys:** bring-your-own OpenAI key (recommended, no backend) vs hosted proxy
-   you pay for (new backend project).
-3. **Capture:** commit to the ScreenCaptureKit rewrite (removes BlackHole) — this
-   is the single highest-leverage change for public use.
+1. **Distribution: DECIDED -> Developer ID `.dmg`.** Sign + notarize, keep the
+   current (unsandboxed, ffmpeg-based) design. Needs an Apple Developer account.
+2. **Keys:** open — bring-your-own OpenAI key (recommended, no backend) vs hosted
+   proxy you pay for.
+3. **Capture:** open — commit to the ScreenCaptureKit rewrite (removes BlackHole),
+   the single highest-leverage change for public use.
+
+## Current state: PAUSED (2026-06-01)
+
+Stopped at Phase 0 (working personal build) by choice. Nothing in progress.
+
+**To resume:** `git checkout feat/macos-menu-bar-app`, open `TutorScribeApp/`,
+⌘R. The next high-leverage task is Phase 2 (ScreenCaptureKit capture). The one
+loose end from Phase 0 is confirming a full live run from the app.
 
 ## Where the code lives
 
