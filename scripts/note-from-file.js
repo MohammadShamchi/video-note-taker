@@ -33,6 +33,7 @@ const TRANSCRIPT_FILE = process.env.TRANSCRIPT_FILE
   : path.join(os.homedir(), 'tutorial_transcript.md');
 const CHUNK_MINS     = 15;
 const MODEL          = process.env.NOTES_MODEL || 'gpt-4o-mini';
+const SESSION_DIR    = path.join(os.homedir(), 'TutorScribe', 'transcripts');
 const TMP_DIR        = fs.mkdtempSync(path.join(os.tmpdir(), 'notes-'));
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -103,6 +104,54 @@ If nothing useful, reply with: (nothing noteworthy)`,
   return json.choices[0].message.content.trim();
 }
 
+// Infer a short, human-readable topic title from transcript text. Returns '' on failure.
+async function inferTranscriptTitle(transcript) {
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: MODEL,
+        temperature: 0.2,
+        messages: [
+          { role: 'system', content: 'You title tutorial recordings. Reply with ONLY a short, human-readable title of 3-8 words describing the topic. No quotes, no trailing punctuation, no markdown.' },
+          { role: 'user', content: transcript.slice(0, 4000) },
+        ],
+      }),
+    });
+    if (!res.ok) return '';
+    const json = await res.json();
+    return (json.choices?.[0]?.message?.content || '').trim().replace(/^["']+|["']+$/g, '');
+  } catch {
+    return '';
+  }
+}
+
+// Filesystem-safe, stable slug: lowercase ASCII, hyphen-separated, diacritics stripped, max 80 chars.
+function slugifyTitle(title) {
+  const slug = (title || '')
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')   // strip diacritics
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80)
+    .replace(/-+$/g, '');
+  return slug || 'untitled';
+}
+
+function timestampForFilename(date) {
+  const p = n => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}-${p(date.getHours())}-${p(date.getMinutes())}`;
+}
+
+function transcriptHeader(title, date) {
+  const created = date.toLocaleString('en-GB', {
+    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+  return `# ${title}\n\n_Created: ${created}_\n\n---\n`;
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -157,6 +206,11 @@ async function main() {
   fs.writeFileSync(OUTPUT_FILE, `# Tutorial Notes — ${title}\n\n_Generated: ${stamp}_\n\n---\n`);
   fs.writeFileSync(TRANSCRIPT_FILE, `# Tutorial Transcript — ${title}\n\n_Generated: ${stamp}_\n\n---\n`);
 
+  // Per-session transcript copy with a topic-based filename, created lazily after the
+  // first successful transcript chunk gives us text to infer a topic from.
+  const sessionDate = new Date();
+  let sessionTranscriptPath = null;
+
   // Transcribe + notes per chunk
   let fullTranscript = '';
   for (let i = 0; i < chunkPaths.length; i++) {
@@ -176,6 +230,25 @@ async function main() {
 
     // Always save the raw transcript, even if notes generation fails below
     fs.appendFileSync(TRANSCRIPT_FILE, `\n## ${label}\n\n${transcript}\n`);
+
+    // On the first successful chunk, infer the topic and open the per-session file.
+    if (!sessionTranscriptPath) {
+      try {
+        const topic = (await inferTranscriptTitle(transcript))
+          || path.basename(resolvedInput, path.extname(resolvedInput));
+        fs.mkdirSync(SESSION_DIR, { recursive: true });
+        sessionTranscriptPath = path.join(
+          SESSION_DIR,
+          `${timestampForFilename(sessionDate)}-${slugifyTitle(topic)}.md`
+        );
+        fs.writeFileSync(sessionTranscriptPath, transcriptHeader(topic, sessionDate));
+      } catch (e) {
+        console.error(`    Per-session transcript init failed: ${e.message}`);
+      }
+    }
+    if (sessionTranscriptPath) {
+      try { fs.appendFileSync(sessionTranscriptPath, `\n## ${label}\n\n${transcript}\n`); } catch {}
+    }
 
     console.log(`  [${i + 1}/${chunkPaths.length}] Generating notes...`);
     let notes;
@@ -210,7 +283,9 @@ async function main() {
 
   console.log(`\n  Done!`);
   console.log(`  Notes      → ${OUTPUT_FILE}`);
-  console.log(`  Transcript → ${TRANSCRIPT_FILE}\n`);
+  console.log(`  Transcript → ${TRANSCRIPT_FILE}`);
+  if (sessionTranscriptPath) console.log(`  Session    → ${sessionTranscriptPath}`);
+  console.log('');
 }
 
 main().catch(e => { console.error(e.message); process.exit(1); });
