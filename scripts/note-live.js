@@ -200,9 +200,11 @@ function recordChunk(deviceIdx, outPath) {
       '-t', String(CHUNK_SECS), '-ar', '16000', '-ac', '1', outPath,
     ];
     const proc = spawn('ffmpeg', args, { stdio: 'ignore' });
-    proc.on('close', code => {
+    proc.on('close', (code, signal) => {
       if (recordChunk._proc === proc) recordChunk._proc = null;
-      return code === 0 || code === 255 ? resolve() : reject(new Error(`ffmpeg exit ${code}`));
+      return code === 0 || code === 255 || signal === 'SIGTERM'
+        ? resolve()
+        : reject(new Error(`ffmpeg exit ${code ?? signal}`));
     });
     proc.on('error', reject);
     recordChunk._proc = proc;
@@ -433,7 +435,10 @@ async function main() {
       enqueueChunk({ index, audioPath: outPath, completedAt: new Date() });
     } catch (e) {
       if (!isShuttingDown) console.error(` error: ${e.message}`);
-      else {
+      else if (fs.existsSync(outPath) && fs.statSync(outPath).size > 0) {
+        console.log(' done (flushed). queued for processing.');
+        enqueueChunk({ index, audioPath: outPath, completedAt: new Date() });
+      } else {
         try { fs.unlinkSync(outPath); } catch {}
       }
     }

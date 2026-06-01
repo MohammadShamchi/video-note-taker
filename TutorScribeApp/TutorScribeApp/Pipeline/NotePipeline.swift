@@ -85,8 +85,16 @@ final class NotePipeline {
                 } catch {
                     if !Task.isCancelled && !self.stopRequested {
                         self.emit(.error(error.localizedDescription))
+                        try? FileManager.default.removeItem(at: out)
+                    } else if self.stopRequested && self.fileSizeMB(out) >= Config.minChunkMB {
+                        self.enqueue(
+                            QueuedChunk(index: index, url: out, completedAt: Date()),
+                            client: client,
+                            store: store
+                        )
+                    } else {
+                        try? FileManager.default.removeItem(at: out)
                     }
-                    try? FileManager.default.removeItem(at: out)
                 }
             }
             self.emit(.finishing)
