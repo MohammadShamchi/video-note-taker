@@ -202,7 +202,7 @@ function recordChunk(deviceIdx, outPath) {
     const proc = spawn('ffmpeg', args, { stdio: 'ignore' });
     proc.on('close', (code, signal) => {
       if (recordChunk._proc === proc) recordChunk._proc = null;
-      return code === 0 || code === 255 || signal === 'SIGTERM'
+      return code === 0 || code === 255 || signal === 'SIGINT' || signal === 'SIGTERM'
         ? resolve()
         : reject(new Error(`ffmpeg exit ${code ?? signal}`));
     });
@@ -234,7 +234,7 @@ async function resolveSessionTitleFrom(transcript) {
       SESSION_DIR,
       `${timestampForFilename(sessionDate)}-${slugifyTitle(topic)}.md`
     );
-    const fixed = fs.readFileSync(sessionTranscriptPath, 'utf8').replace(/^#.*\n/, `# ${topic}\n`);
+    const fixed = fs.readFileSync(sessionTranscriptPath, 'utf8').replace(/^#.*\n/, () => `# ${topic}\n`);
     fs.writeFileSync(finalPath, fixed);
     if (finalPath !== sessionTranscriptPath) fs.unlinkSync(sessionTranscriptPath);
     sessionTranscriptPath = finalPath;
@@ -366,7 +366,7 @@ process.on('SIGINT', () => {
   }
   isShuttingDown = true;
   if (recordChunk._proc) {
-    try { recordChunk._proc.kill('SIGTERM'); } catch {}
+    try { recordChunk._proc.kill('SIGINT'); } catch {}
   }
   console.log('\n\n  Stopping — finishing active recording and draining queued chunks...');
 });

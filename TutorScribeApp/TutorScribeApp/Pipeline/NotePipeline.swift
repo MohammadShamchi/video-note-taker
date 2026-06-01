@@ -134,9 +134,6 @@ final class NotePipeline {
                 try? FileManager.default.removeItem(at: chunk.url)
             }
             self.processingTask = nil
-            if !self.queuedChunks.isEmpty {
-                self.ensureProcessingTask(client: client, store: store)
-            }
         }
     }
 
