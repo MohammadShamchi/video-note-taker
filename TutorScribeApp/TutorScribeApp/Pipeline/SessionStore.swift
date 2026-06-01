@@ -4,6 +4,8 @@ import Foundation
 /// per-session, topic-named transcript copy under ~/TutorScribe/transcripts/.
 /// Markdown conventions match scripts/note-live.js exactly so the existing
 /// push-to-notion.js parser (and the Swift Notion push) keep working.
+/// @MainActor so its mutable session state is accessed serially with NotePipeline.
+@MainActor
 final class SessionStore {
     let notesFile: URL
     let transcriptFile: URL
@@ -16,9 +18,9 @@ final class SessionStore {
 
     var isTitleResolved: Bool { titleResolved }
 
-    init(notes: URL = Config.notesFile, transcript: URL = Config.transcriptFile) {
-        self.notesFile = notes
-        self.transcriptFile = transcript
+    init(notes: URL? = nil, transcript: URL? = nil) {
+        self.notesFile = notes ?? Config.notesFile
+        self.transcriptFile = transcript ?? Config.transcriptFile
     }
 
     /// `~/TutorScribe/transcripts/` — per-session transcript directory (matches the CLI).
@@ -39,6 +41,13 @@ final class SessionStore {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_GB")
         f.dateFormat = "d MMM yyyy, HH:mm"
+        return f
+    }()
+    /// `2026-06-01-14-30` — stable, sortable filename stamp (POSIX locale for fixed digits).
+    private static let filenameFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd-HH-mm"
         return f
     }()
 
@@ -166,9 +175,7 @@ final class SessionStore {
 
     /// `yyyy-MM-dd-HH-mm` for stable, sortable filenames.
     static func timestampForFilename(_ date: Date) -> String {
-        let c = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
-        func p(_ n: Int?) -> String { String(format: "%02d", n ?? 0) }
-        return "\(c.year ?? 0)-\(p(c.month))-\(p(c.day))-\(p(c.hour))-\(p(c.minute))"
+        filenameFormatter.string(from: date)
     }
 
     static func transcriptHeader(_ title: String, _ date: Date) -> String {

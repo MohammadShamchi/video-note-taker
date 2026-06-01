@@ -19,7 +19,10 @@ enum PipelineStatus: Equatable {
 }
 
 /// The record → transcribe → note loop. Mirrors the main loop in note-live.js.
-/// Reports progress through @MainActor callbacks consumed by AppState.
+/// @MainActor so its mutable state (`segments`, the `SessionStore` instance) is
+/// accessed serially; the heavy work (ffmpeg, OpenAI) stays off-main via the
+/// nonisolated async calls it awaits.
+@MainActor
 final class NotePipeline {
     var onStatus: (@MainActor (PipelineStatus) -> Void)?
     var onSegment: (@MainActor (_ count: Int, _ lastNote: String?) -> Void)?
