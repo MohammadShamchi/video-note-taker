@@ -53,7 +53,7 @@ final class AppState: ObservableObject {
 
     func openTranscript() {
         guard let url = lastTranscriptFile else { return }
-        if FileManager.default.fileExists(atPath: url.path) {
+        if (try? url.checkResourceIsReachable()) == true {
             NSWorkspace.shared.open(url)
         } else {
             banner = "Transcript file no longer exists."

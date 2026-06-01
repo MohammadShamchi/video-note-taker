@@ -162,7 +162,8 @@ final class SessionStore {
 
     /// Filesystem-safe slug: lowercase ASCII, hyphen-separated, diacritics stripped, max 80.
     static func slugify(_ title: String) -> String {
-        let folded = title.folding(options: .diacriticInsensitive, locale: .current).lowercased()
+        let folded = title.folding(options: .diacriticInsensitive,
+                                   locale: Locale(identifier: "en_US_POSIX")).lowercased()
         var slug = ""
         var lastDash = false
         for scalar in folded.unicodeScalars {
