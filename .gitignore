@@ -15,3 +15,9 @@ node_modules/
 # Temp audio chunks
 /tmp/live-notes-*
 /tmp/notes-*
+
+# Xcode
+**/xcuserdata/
+*.xcuserstate
+DerivedData/
+.build/

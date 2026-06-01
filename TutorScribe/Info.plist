@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Reference Info.plist values for TutorScribe.
+
+  If your Xcode target uses a GENERATED Info.plist (default for new apps),
+  don't add this file. Instead set these in the target's Info tab / build settings:
+    • "Application is agent (UIElement)"  →  YES   (LSUIElement)
+    • Add a URL Type with scheme "tutorscribe"     (for the OAuth redirect)
+
+  If your target uses an Info.plist FILE, you can paste the keys below.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>LSUIElement</key>
+    <true/>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.tutorscribe.oauth</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>tutorscribe</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>
