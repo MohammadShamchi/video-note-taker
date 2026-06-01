@@ -28,6 +28,13 @@ final class AppState: ObservableObject {
 
     var canPush: Bool { registry.notion.isConnected && !isRunning }
 
+    /// Default Notion page title: the topic inferred for the current/last session
+    /// (Feature 2), falling back to the latest session topic, then a date title.
+    var defaultNotionTitle: String {
+        if let file = lastTranscriptFile, let topic = SessionStore.title(of: file) { return topic }
+        return SessionStore.latestSessionTitle() ?? SessionData.dateTitle()
+    }
+
     func toggle() {
         isRunning ? stop() : start()
     }

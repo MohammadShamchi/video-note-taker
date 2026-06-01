@@ -192,6 +192,39 @@ final class SessionStore {
 
     // MARK: Last-session recovery (port of push-to-notion.js#readLastSession)
 
+    // MARK: Inferred-title recovery (reuse the topic from the per-session file's H1)
+
+    /// The `# …` heading of a per-session transcript file, or nil for a missing file
+    /// or a placeholder/fallback heading ("Tutorial session…", "Tutorial Session").
+    static func title(of file: URL) -> String? {
+        guard let content = try? String(contentsOf: file, encoding: .utf8),
+              let firstLine = content.split(separator: "\n", maxSplits: 1).first else { return nil }
+        guard firstLine.hasPrefix("# ") else { return nil }
+        let h1 = firstLine.dropFirst(2).trimmingCharacters(in: .whitespaces)
+        if h1.isEmpty || h1.lowercased().hasPrefix("tutorial session") || h1 == "Tutorial Session" {
+            return nil
+        }
+        return h1
+    }
+
+    /// The inferred topic of the newest non-pending per-session transcript file.
+    static func latestSessionTitle() -> String? {
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(
+            at: sessionDir,
+            includingPropertiesForKeys: [.contentModificationDateKey]
+        ) else { return nil }
+        let candidates = entries.filter {
+            $0.pathExtension == "md" && !$0.lastPathComponent.hasPrefix("pending-")
+        }
+        let newest = candidates.max { a, b in
+            let da = (try? a.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            let db = (try? b.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            return da < db
+        }
+        return newest.flatMap(title(of:))
+    }
+
     static func readLastSession(_ file: URL) -> String {
         guard let content = try? String(contentsOf: file, encoding: .utf8) else { return "" }
         let pattern = "\\n_(?:New session|Session started|Generated): "
