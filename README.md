@@ -18,7 +18,8 @@ Rather than patch Screenpipe, I cut it out entirely and built a simpler, more re
 
 ```
 Browser audio → BlackHole (virtual cable) → ffmpeg (60s chunks)
-             → OpenAI Whisper API → GPT-4o-mini → Markdown notes
+             → OpenAI Whisper API + GPT-4o-mini in the background
+             → Markdown transcript + notes
 ```
 
 Three scripts, no database, no background daemon, no SaaS dependency beyond an OpenAI API key.
@@ -49,11 +50,11 @@ Both live and file modes produce these files:
 │                                                              │
 │  Browser → Multi-Output Device → BlackHole 2ch              │
 │         ↓                                                    │
-│     ffmpeg records 60s WAV chunks                            │
+│     ffmpeg records continuous 60s WAV chunks                 │
 │         ↓                                                    │
-│     OpenAI Whisper API  (speech → text, ~$0.006/min)        │
+│     Queue drains in order while recording continues          │
 │         ↓                                                    │
-│     GPT-4o-mini         (text → bullet notes)               │
+│     OpenAI Whisper API + GPT-4o-mini                         │
 │         ↓                                                    │
 │     tutorial_notes.md + tutorial_transcript.md               │
 └──────────────────────────────────────────────────────────────┘
@@ -141,12 +142,13 @@ npm run live
 ```
 
 Open your tutorial in the browser and press play. Every 60 seconds:
-1. ffmpeg stops recording and saves a WAV chunk
-2. Whisper transcribes it
-3. GPT-4o-mini generates bullet-point notes
-4. Both raw transcript and notes are appended to their files
+1. ffmpeg saves a WAV chunk and immediately starts recording the next one
+2. the completed chunk is queued for ordered background processing
+3. Whisper transcribes it, using a short tail from the previous transcript as context
+4. the raw transcript is appended as soon as transcription succeeds
+5. GPT-4o-mini generates notes when the segment has enough speech
 
-Press `Ctrl+C` when the video ends — any remaining audio is processed before exit.
+Press `Ctrl+C` when the video ends. The active chunk is flushed, queued chunks are drained, and then the script exits. Press `Ctrl+C` a second time to force exit, which may leave queued chunks unprocessed.
 
 ```
 note-live.js
@@ -158,9 +160,10 @@ Transcript   : ~/tutorial_transcript.md
 ─────────────────────────────────────────
 Play your video. Press Ctrl+C when done.
 
-  [9:01:05 PM] Recording 60s... done.   Transcribing... 57 words. Generating notes... ✓ saved
-  [9:02:20 PM] Recording 60s... done.   Transcribing... 163 words. Generating notes... ✓ saved
-  [9:03:29 PM] Recording 60s... done.   Transcribing... 148 words. Generating notes... ✓ saved
+  [9:01:05 PM] Recording 60s... done. queued for processing.
+  [chunk 1] Transcribing... 57 words. Generating notes... ✓ saved
+  [9:02:05 PM] Recording 60s... done. queued for processing.
+  [chunk 2] Transcribing... 163 words. Generating notes... ✓ saved
 ```
 
 **Manual device override** (if auto-detect fails):
@@ -183,6 +186,8 @@ Supports any ffmpeg-compatible format: mp4, mkv, mov, mp3, wav, m4a, webm.
 Files longer than ~50 minutes are automatically split into 15-minute chunks and processed in order, with an overall summary at the end.
 
 Like live mode, file mode writes **`~/tutorial_notes.md`** (AI bullet notes per segment, plus an overall summary for multi-chunk videos), **`~/tutorial_transcript.md`** (the full verbatim transcript, one section per chunk), and a topic-named per-session copy under **`~/TutorScribe/transcripts/`**.
+
+Each file-mode chunk also passes a short tail of the previous transcript into Whisper as context, which helps preserve phrase continuity across 15-minute boundaries.
 
 ---
 
@@ -296,6 +301,11 @@ node scripts/note-live.js --device 2
 **Empty transcriptions / no words detected**
 - Confirm Multi-Output Device is set as system output in Sound settings
 - Make sure the video volume is audible — Whisper needs a clear signal
+
+**Processing backlog appears**
+- Recording keeps going while OpenAI calls run. A backlog means transcription or notes generation is slower than real time.
+- Keep the script running after `Ctrl+C`; it drains captured chunks before exiting.
+- Notes can be skipped for very short or unimportant segments, but non-empty transcript text is still saved.
 
 **`OPENAI_API_KEY is not set`**
 - Run `cp .env.example .env` and fill in your key

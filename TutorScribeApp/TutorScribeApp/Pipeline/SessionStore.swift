@@ -7,6 +7,11 @@ import Foundation
 /// @MainActor so its mutable session state is accessed serially with NotePipeline.
 @MainActor
 final class SessionStore {
+    struct SegmentInfo {
+        let number: Int
+        let time: String
+    }
+
     let notesFile: URL
     let transcriptFile: URL
 
@@ -83,21 +88,34 @@ final class SessionStore {
         }
     }
 
-    /// Append one segment, advancing the session's segment counter. Notes file is
-    /// skipped when `notes` is nil ("-" result); the transcript files are always saved.
-    /// Returns the new segment number.
+    /// Append one transcript segment immediately after transcription succeeds.
     @discardableResult
-    func appendSegment(transcript: String, notes: String?, date: Date = Date()) -> Int {
+    func appendTranscriptSegment(_ transcript: String, date: Date = Date()) -> SegmentInfo {
         segmentCount += 1
         let n = segmentCount
         let time = Self.timeFormatter.string(from: date)
         let block = "\n## Segment \(n) — \(time)\n\n\(transcript)\n"
         append(transcriptFile, block)
         if let sessionFile { append(sessionFile, block) }
+        return SegmentInfo(number: n, time: time)
+    }
+
+    /// Append notes for an existing transcript segment. This keeps notes optional
+    /// without changing the transcript segment numbering contract.
+    func appendNotesSegment(_ notes: String, segment: SegmentInfo) {
+        append(notesFile, "\n## Segment \(segment.number) — \(segment.time)\n\n\(notes)\n")
+    }
+
+    /// Append one segment, advancing the session's segment counter. Notes file is
+    /// skipped when `notes` is nil ("-" result); the transcript files are always saved.
+    /// Returns the new segment number.
+    @discardableResult
+    func appendSegment(transcript: String, notes: String?, date: Date = Date()) -> Int {
+        let segment = appendTranscriptSegment(transcript, date: date)
         if let notes {
-            append(notesFile, "\n## Segment \(n) — \(time)\n\n\(notes)\n")
+            appendNotesSegment(notes, segment: segment)
         }
-        return n
+        return segment.number
     }
 
     /// First useful chunk: rename the pending per-session file to a topic-based name and

@@ -28,7 +28,7 @@ struct OpenAIClient {
 
     // MARK: Transcription (whisper-1, response_format=text)
 
-    func transcribe(_ wav: URL) async throws -> String {
+    func transcribe(_ wav: URL, prompt: String? = nil) async throws -> String {
         let boundary = "Boundary-\(UUID().uuidString)"
         var req = URLRequest(url: URL(string: "https://api.openai.com/v1/audio/transcriptions")!)
         req.httpMethod = "POST"
@@ -49,6 +49,9 @@ struct OpenAIClient {
         body.append("\r\n")
         field("model", "whisper-1")
         field("response_format", "text")
+        if let prompt = prompt?.trimmingCharacters(in: .whitespacesAndNewlines), !prompt.isEmpty {
+            field("prompt", String(prompt.suffix(600)))
+        }
         body.append("--\(boundary)--\r\n")
         req.httpBody = body
 
