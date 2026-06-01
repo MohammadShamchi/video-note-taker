@@ -6,7 +6,7 @@
  * How it works:
  *   video/audio file → ffmpeg (extract + split audio)
  *   → OpenAI Whisper (transcription) → GPT-4o-mini (notes)
- *   → tutorial_notes.md
+ *   → tutorial_notes.md + tutorial_transcript.md
  *
  * Usage:
  *   node scripts/note-from-file.js /path/to/tutorial.mp4
@@ -28,6 +28,9 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OUTPUT_FILE    = process.env.NOTES_FILE
   ? path.resolve(process.env.NOTES_FILE.replace('~', os.homedir()))
   : path.join(os.homedir(), 'tutorial_notes.md');
+const TRANSCRIPT_FILE = process.env.TRANSCRIPT_FILE
+  ? path.resolve(process.env.TRANSCRIPT_FILE.replace('~', os.homedir()))
+  : path.join(os.homedir(), 'tutorial_transcript.md');
 const CHUNK_MINS     = 15;
 const MODEL          = process.env.NOTES_MODEL || 'gpt-4o-mini';
 const TMP_DIR        = fs.mkdtempSync(path.join(os.tmpdir(), 'notes-'));
@@ -104,8 +107,9 @@ If nothing useful, reply with: (nothing noteworthy)`,
 
 async function main() {
   console.log(`\n  note-from-file.js`);
-  console.log(`  Input  : ${resolvedInput}`);
-  console.log(`  Output : ${OUTPUT_FILE}\n`);
+  console.log(`  Input      : ${resolvedInput}`);
+  console.log(`  Notes      : ${OUTPUT_FILE}`);
+  console.log(`  Transcript : ${TRANSCRIPT_FILE}\n`);
 
   // Get duration
   let duration = 0;
@@ -145,10 +149,13 @@ async function main() {
     }
   }
 
-  // Init notes file
+  // Init notes + transcript files
   const title  = path.basename(resolvedInput);
-  const header = `# Tutorial Notes — ${title}\n\n_Generated: ${new Date().toLocaleString()}_\n\n---\n`;
-  fs.writeFileSync(OUTPUT_FILE, header);
+  const stamp  = new Date().toLocaleString();
+  fs.mkdirSync(path.dirname(OUTPUT_FILE), { recursive: true });
+  fs.mkdirSync(path.dirname(TRANSCRIPT_FILE), { recursive: true });
+  fs.writeFileSync(OUTPUT_FILE, `# Tutorial Notes — ${title}\n\n_Generated: ${stamp}_\n\n---\n`);
+  fs.writeFileSync(TRANSCRIPT_FILE, `# Tutorial Transcript — ${title}\n\n_Generated: ${stamp}_\n\n---\n`);
 
   // Transcribe + notes per chunk
   let fullTranscript = '';
@@ -166,6 +173,9 @@ async function main() {
     }
 
     fullTranscript += transcript + '\n\n';
+
+    // Always save the raw transcript, even if notes generation fails below
+    fs.appendFileSync(TRANSCRIPT_FILE, `\n## ${label}\n\n${transcript}\n`);
 
     console.log(`  [${i + 1}/${chunkPaths.length}] Generating notes...`);
     let notes;
@@ -198,7 +208,9 @@ async function main() {
   chunkPaths.forEach(p => { try { fs.unlinkSync(p); } catch {} });
   try { fs.rmdirSync(TMP_DIR); } catch {}
 
-  console.log(`\n  Done!\n  Notes → ${OUTPUT_FILE}\n`);
+  console.log(`\n  Done!`);
+  console.log(`  Notes      → ${OUTPUT_FILE}`);
+  console.log(`  Transcript → ${TRANSCRIPT_FILE}\n`);
 }
 
 main().catch(e => { console.error(e.message); process.exit(1); });
