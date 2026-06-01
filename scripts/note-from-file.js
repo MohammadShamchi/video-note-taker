@@ -131,7 +131,7 @@ async function inferTranscriptTitle(transcript) {
 function slugifyTitle(title) {
   const slug = (title || '')
     .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')   // strip diacritics
+    .replace(/[\u0300-\u036f]/g, '')   // strip diacritics
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
@@ -232,17 +232,21 @@ async function main() {
     fs.appendFileSync(TRANSCRIPT_FILE, `\n## ${label}\n\n${transcript}\n`);
 
     // On the first successful chunk, infer the topic and open the per-session file.
+    // Assign sessionTranscriptPath only after the header write succeeds, so a failed
+    // init leaves it null and the next chunk retries instead of appending to nothing.
     if (!sessionTranscriptPath) {
       try {
         const topic = (await inferTranscriptTitle(transcript))
           || path.basename(resolvedInput, path.extname(resolvedInput));
         fs.mkdirSync(SESSION_DIR, { recursive: true });
-        sessionTranscriptPath = path.join(
+        const targetPath = path.join(
           SESSION_DIR,
           `${timestampForFilename(sessionDate)}-${slugifyTitle(topic)}.md`
         );
-        fs.writeFileSync(sessionTranscriptPath, transcriptHeader(topic, sessionDate));
+        fs.writeFileSync(targetPath, transcriptHeader(topic, sessionDate));
+        sessionTranscriptPath = targetPath;
       } catch (e) {
+        sessionTranscriptPath = null;
         console.error(`    Per-session transcript init failed: ${e.message}`);
       }
     }

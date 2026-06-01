@@ -155,7 +155,7 @@ async function inferTranscriptTitle(transcript) {
 function slugifyTitle(title) {
   const slug = (title || '')
     .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')   // strip diacritics
+    .replace(/[\u0300-\u036f]/g, '')   // strip diacritics
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
@@ -231,19 +231,23 @@ async function processChunk(audioPath) {
   fs.appendFileSync(TRANSCRIPT_FILE, `\n## Segment ${totalSegments} — ${time}\n\n${transcript}\n`);
 
   // First useful chunk: infer the topic and rename the pending per-session file.
+  // Only mark the title resolved once a non-empty topic is successfully written and
+  // renamed, so a failed inference or filesystem error retries on the next chunk.
   if (sessionTranscriptPath && !titleResolved) {
-    titleResolved = true;
     try {
-      const topic     = (await inferTranscriptTitle(transcript)) || 'Tutorial session';
-      const finalPath = path.join(
-        SESSION_DIR,
-        `${timestampForFilename(sessionDate)}-${slugifyTitle(topic)}.md`
-      );
-      const fixed = fs.readFileSync(sessionTranscriptPath, 'utf8').replace(/^#.*\n/, `# ${topic}\n`);
-      fs.writeFileSync(finalPath, fixed);
-      if (finalPath !== sessionTranscriptPath) fs.unlinkSync(sessionTranscriptPath);
-      sessionTranscriptPath = finalPath;
-    } catch { /* keep writing to the pending path on failure */ }
+      const topic = await inferTranscriptTitle(transcript);
+      if (topic) {
+        const finalPath = path.join(
+          SESSION_DIR,
+          `${timestampForFilename(sessionDate)}-${slugifyTitle(topic)}.md`
+        );
+        const fixed = fs.readFileSync(sessionTranscriptPath, 'utf8').replace(/^#.*\n/, `# ${topic}\n`);
+        fs.writeFileSync(finalPath, fixed);
+        if (finalPath !== sessionTranscriptPath) fs.unlinkSync(sessionTranscriptPath);
+        sessionTranscriptPath = finalPath;
+        titleResolved = true;
+      }
+    } catch { /* keep writing to the pending path; retry on the next chunk */ }
   }
   if (sessionTranscriptPath) {
     try { fs.appendFileSync(sessionTranscriptPath, `\n## Segment ${totalSegments} — ${time}\n\n${transcript}\n`); } catch {}
@@ -267,6 +271,19 @@ process.on('SIGINT', async () => {
     try { recordChunk._proc.kill('SIGTERM'); } catch {}
   }
   console.log('\n\n  Stopping — processing last chunk...');
+
+  // If no topic was ever resolved, rename the pending file to a clean fallback name
+  // so we don't leave a pending-*.md behind.
+  if (sessionTranscriptPath && !titleResolved) {
+    try {
+      const finalPath = path.join(SESSION_DIR, `${timestampForFilename(sessionDate)}-tutorial-session.md`);
+      const fixed = fs.readFileSync(sessionTranscriptPath, 'utf8').replace(/^#.*\n/, '# Tutorial Session\n');
+      fs.writeFileSync(finalPath, fixed);
+      if (finalPath !== sessionTranscriptPath) fs.unlinkSync(sessionTranscriptPath);
+      sessionTranscriptPath = finalPath;
+    } catch {}
+  }
+
   console.log(`\n  Done! ${totalSegments} segment(s) saved.`);
   console.log(`  Notes      → ${OUTPUT_FILE}`);
   console.log(`  Transcript → ${TRANSCRIPT_FILE}`);
